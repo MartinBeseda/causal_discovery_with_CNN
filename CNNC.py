@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import keras
 from keras.models import Sequential
@@ -10,7 +12,7 @@ import os,sys
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
-model_name = 'keras_cnn_trained_model_shallow.h5'
+model_name = 'keras_cnn_trained_model_shallow.keras'
 
 
 
@@ -68,10 +70,17 @@ def load_data(data_path,label_path=None,size=8, log= True):
 
     xdata_org = read_causal_pairs(data_path)
 
+    # TODO remove - only for debug!
+    
+    #xdata_org = xdata_org[6:7]
+
     num_rows = len(xdata_org.index)
     for i in range(num_rows):
-        x = xdata_org["A"][i]
-        y = xdata_org["B"][i]
+        # TODO is this the right way to access i-th element?
+        #x = xdata_org["A"][i]
+        #y = xdata_org["B"][i]
+        x = xdata_org["A"].iloc[i]
+        y = xdata_org["B"].iloc[i]
         H_T = np.histogram2d(x=x, y=y, bins=size)
         H = H_T[0].T
         HT = H / H.max()
@@ -84,12 +93,22 @@ def load_data(data_path,label_path=None,size=8, log= True):
 
         if label_path != None:
             ydata_org = read_data(label_path).set_index("SampleID")
-            target_symbol =  ydata_org["Target"][i]
+            #print(type(ydata_org))
+            #print(ydata_org[1:2])
+            
+            # TODO is this the right way to access i-th element?
+            #target_symbol = ydata_org["Target"][i]
+            try:
+                target_symbol = ydata_org["Target"].iloc[i]
+            except Exception as e:
+                print(f'Exception: {e}')
+                print(f'ydata example:\n{ydata_org[1:2]}')
+                exit(-1)
             target_train.append(target_symbol)
 
     xx = np.array(data_train)[:, :, :, np.newaxis]
-    if label_path != None:
-        return xx,target_train
+    if label_path is not None:
+        return xx, target_train#, hislog, H_T, x, y
     else:
         return xx
 
@@ -97,14 +116,9 @@ def load_data(data_path,label_path=None,size=8, log= True):
 def CNN(result_dir, x_train,y_train,x_test,y_test = None, num_class=3):
 # The CNN: for generated histogram classifications, result should be stored as in the result_dir
     if num_class > 2:
-        y_train = keras.utils.to_categorical(y_train, num_classes=3, dtype='float32')
+        y_train = keras.utils.to_categorical(y_train, num_classes=3)
         if type(y_test) == list:
-            y_test = keras.utils.to_categorical(y_test, num_classes=3, dtype='float32')
-
-    print(x_train.shape)
-    print(y_train.shape)
-    print(x_train.shape, 'x_train samples')
-    print(x_test.shape, 'x_test samples')
+            y_test = keras.utils.to_categorical(y_test, num_classes=3)
 
     save_dir = os.path.join(result_dir)  ## the result folder
 
@@ -141,23 +155,34 @@ def CNN(result_dir, x_train,y_train,x_test,y_test = None, num_class=3):
         sys.exit()
 
     elif num_class == 2:
-        model.add(Dense(1, activation='sigmoid'))
-        sgd = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+        # TODO trying to debug "loss: nan"
+        # model.add(Dense(1, activation='sigmoid'))
+        model.add(Dense(1, activation='softmax'))
+        sgd = SGD(learning_rate=0.01, weight_decay=1e-6, momentum=0.9, nesterov=True)
         model.compile(optimizer=sgd, loss='binary_crossentropy', metrics=['accuracy'])
 
     else:
         model.add(Dense(num_class))
         model.add(Activation('softmax'))
-        sgd = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
+        sgd = SGD(learning_rate=0.01, weight_decay=1e-6, momentum=0.9, nesterov=True)
         model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=['accuracy'])
 
     early_stopping = keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=50, verbose=0, mode='auto')
-    checkpoint1 = ModelCheckpoint(filepath=save_dir + '/weights.{epoch:02d}-{val_loss:.2f}.hdf5', monitor='val_loss',
-                                  verbose=1, save_best_only=False, save_weights_only=False, mode='auto', period=1)
-    checkpoint2 = ModelCheckpoint(filepath=save_dir + '/weights.hdf5', monitor='val_accuracy', verbose=1,
-                                  save_best_only=True, mode='auto', period=1)
+    # checkpoint1 = ModelCheckpoint(filepath=save_dir + '/weights.{epoch:02d}-{val_loss:.2f}.keras', monitor='val_loss',
+    #                               verbose=1, save_best_only=False, save_weights_only=False, mode='auto', save_freq=1)
+    checkpoint2 = ModelCheckpoint(filepath=save_dir + '/weights.keras', monitor='val_accuracy', verbose=1,
+                                  save_best_only=True, mode='auto', save_freq=1)
     callbacks_list = [checkpoint2, early_stopping]
 
+    # TODO remove - only for debug
+    print(f'x_train type: {type(x_train)}')
+    print(f'y_train type: {type(y_train)}')
+    print(f'len y_train: {len(y_train)}')
+    print(f'y_train[0] type: {type(y_train[0])}')
+    # json.dump(x_train, open('x_train.json', 'w'), cls=NumpyEncoder)
+    # json.dump(y_train, open('y_train.json', 'w'))
+
+    y_train = np.array(y_train)
     history = model.fit(x_train, y_train, epochs=1000, batch_size=256, validation_split=0.33, callbacks=callbacks_list)
 
     # Save model and weights
@@ -166,6 +191,7 @@ def CNN(result_dir, x_train,y_train,x_test,y_test = None, num_class=3):
     print('Saved trained model at %s ' % model_path)
     # Score trained model.
     if type(y_test) == list:
+        y_test = np.array(y_test)
         scores = model.evaluate(x_test, y_test, verbose=1)
         print('Test loss:', scores[0])
         print('Test accuracy:', scores[1])
@@ -174,32 +200,31 @@ def CNN(result_dir, x_train,y_train,x_test,y_test = None, num_class=3):
         np.save(save_dir + '/end_y_predict.npy', y_predict)
 
 ##############################################################################
-#params: is_log: flag for taking the log on generated histogram
-#size: histogram size For example 8 means 8x8 histogram
-#num of classes for CNN prediction, can be both binary or three-way
-#save_dir for weights of trained CNN
+# params: is_log: flag for taking the log on generated histogram
+# size: histogram size For example 8 means 8x8 histogram
+# num of classes for CNN prediction, can be both binary or three-way
+# save_dir for weights of trained CNN
 # train_data_path: csv file for causal pairs A,B
 # train_label_path: csv file for labels
 # test_data_path: csv file for causal pairs A,B (for prediction)
 # test_data_path: optional, for evaluating the accuracy of A,B causal effects
 
-is_log = sys.argv[1].lower() == 'true'
-size= int(sys.argv[2])
-num_class = int(sys.argv[3])
-save_dir = sys.argv[4]
-train_data_path = sys.argv[5]
-train_label_path = sys.argv[6]
-test_data_path = sys.argv[7]
 
+if __name__ == '__main__':
+    is_log = sys.argv[1].lower() == 'true'
+    size = int(sys.argv[2])
+    num_class = int(sys.argv[3])
+    save_dir = sys.argv[4]
+    train_data_path = sys.argv[5]
+    train_label_path = sys.argv[6]
+    test_data_path = sys.argv[7]
 
-if len(sys.argv) > 8:
-    test_label_path = sys.argv[8]
-    (x_train, y_train) = load_data(train_data_path,train_label_path,size)
-    (x_test,y_test) = load_data(test_data_path,test_label_path)
-    CNN(result_dir =save_dir, x_train=x_train, y_train=y_train,x_test=x_test,y_test=y_test, num_class=num_class)
-else:
-    (x_train, y_train) = load_data(train_data_path, train_label_path, size)
-    x_test = load_data(test_data_path,size)
-    CNN(result_dir=save_dir, x_train=x_train, y_train=y_train, x_test=x_test, num_class=num_class)
-
-
+    if len(sys.argv) > 8:
+        test_label_path = sys.argv[8]
+        (x_train, y_train) = load_data(train_data_path, train_label_path, size)
+        (x_test, y_test) = load_data(test_data_path, test_label_path)
+        CNN(result_dir=save_dir, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test, num_class=num_class)
+    else:
+        (x_train, y_train) = load_data(train_data_path, train_label_path, size)
+        x_test = load_data(test_data_path, size)
+        CNN(result_dir=save_dir, x_train=x_train, y_train=y_train, x_test=x_test, num_class=num_class)

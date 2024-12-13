@@ -20,6 +20,7 @@ for i in range(5998):
     a = np.genfromtxt("example/Kaggle/SUP1data_split/train" + str(i+1) + ".txt")
     x = a[:, 0]
     y = a[:, 1]
+
     label = target_symbol[i]
     x_y_train['SampleID'].append('pair' + str(overall_count))
     x_y_train['A'].append(" " + " ".join([str(ii) for ii in x]))

@@ -2,6 +2,7 @@
 
 import os
 import pandas as pd
+from pandas.errors import EmptyDataError
 import networkx as nx
 from cdt.causality.pairwise import (NCC, IGCI, BivariateFit, CDS,
                                     NCC, RCC, RECI, GNN, Jarfo)
@@ -24,9 +25,6 @@ import sklearn.metrics as metrics
 from scipy.special import expit
 
 
-
-
-
 def process_data(prediction, method = "sigmoid"):
     if method == "linear":
         return ( prediction + abs(min(prediction)) ) / max(prediction)
@@ -36,7 +34,7 @@ def process_data(prediction, method = "sigmoid"):
 def read_data(file):
     try:
         df = pd.read_csv(file)
-    except pd.io.common.EmptyDataError:
+    except EmptyDataError:
         df = pd.DataFrame()
     return df
 
@@ -72,8 +70,9 @@ def test_pairwise(x_train, y_train, x_test,  method):
         if hasattr(m, "fit"):
             m.fit(x_train, y_train)
         r = m.predict(x_test)
+        r_proba = m.predict_proba(x_train)
         r = np.array(r)
-    return r.reshape(r.shape[0],1)
+    return r.reshape(r.shape[0],1), r_proba
 
 
 def read_method(method):
@@ -91,68 +90,69 @@ def read_method(method):
         return Jarfo
 
 
-method = sys.argv[1]
+if __name__ == '__main__':
+    method = sys.argv[1]
 
-t0 = time.time()
-train_data_path = "example/Kaggle_train_data.csv"
-train_label_path = "example/Kaggle_train_label.csv"
-valid_data_path = "example/Kaggle_valid_data.csv"
-test_data_path = "example/Kaggle_test_data.csv"
-
-(x_train, y_train) = load_data(train_data_path,train_label_path,"01")
-x_test = load_data(valid_data_path)
-y_predict_01 = test_pairwise(x_train, y_train, x_test, method = method)
-
-
-(x_train, y_train) = load_data(train_data_path,train_label_path,"-11")
-x_test = load_data(valid_data_path)
-y_predict_11 = test_pairwise(x_train, y_train, x_test, method = method)
-
-if method == "NCC":
-    y_predict_01 = process_data(y_predict_01)
-    y_predict_11 = process_data(y_predict_11)
-
-pred = y_predict_01 * (2 * y_predict_11- 1)
-
-from collections import defaultdict
-y_train =  defaultdict(list)
-for i in range(pred.shape[0]):
-    label= "valid" + str(i+1)
-    y_train['SampleID'].append(label)
-    y_train['Target'].append(pred[i][0])
-
-dfy = pd.DataFrame(y_train)
-dfy.to_csv("example/valid_result_" + method + ".csv", index=False,header=False)
-
-t1 = time.time()
-print(t1 - t0)
+    t0 = time.time()
+    # train_data_path = "example/Kaggle_train_data.csv"
+    # train_label_path = "example/Kaggle_train_label.csv"
+    # valid_data_path = "example/Kaggle_valid_data.csv"
+    # test_data_path = "example/Kaggle_test_data.csv"
+    train_data_path = 'example/synthetic_chain_structure_train_data.csv'
+    train_label_path = 'example/synthetic_chain_structure_train_label.csv'
+    valid_data_path = 'example/synthetic_chain_structure_test_data.csv'
+    test_data_path = 'example/synthetic_chain_structure_test_data.csv'
 
 
+    (x_train, y_train) = load_data(train_data_path, train_label_path, "01")
+    x_test = load_data(valid_data_path)
+    y_predict_01, y_predict_01_proba = test_pairwise(x_train, y_train, x_test, method = method)
 
-(x_train, y_train) = load_data(train_data_path,train_label_path,"01")
-x_test = load_data(test_data_path)
-y_predict_01 = test_pairwise(x_train, y_train, x_test, method = method)
+    (x_train, y_train) = load_data(train_data_path, train_label_path, "-11")
+    x_test = load_data(valid_data_path)
+    y_predict_11, y_predict_11_proba = test_pairwise(x_train, y_train, x_test, method = method)
 
+    if method == "NCC":
+        y_predict_01 = process_data(y_predict_01)
+        y_predict_11 = process_data(y_predict_11)
 
-(x_train, y_train) = load_data(train_data_path,train_label_path,"-11")
-x_test = load_data(test_data_path)
-y_predict_11 = test_pairwise(x_train, y_train, x_test, method = method)
+    pred = y_predict_01 * (2 * y_predict_11 - 1)
 
-if method == "NCC":
-    y_predict_01 = process_data(y_predict_01)
-    y_predict_11 = process_data(y_predict_11)
+    from collections import defaultdict
+    y_train = defaultdict(list)
+    for i in range(pred.shape[0]):
+        label = "valid" + str(i+1)
+        y_train['SampleID'].append(label)
+        y_train['Target'].append(pred[i][0])
 
-pred = y_predict_01 * (2 * y_predict_11- 1)
+    dfy = pd.DataFrame(y_train)
+    dfy.to_csv("example/valid_result_" + method + ".csv", index=False,header=False)
 
-y_train =  defaultdict(list)
-for i in range(pred.shape[0]):
-    label= "test" + str(i+1)
-    y_train['SampleID'].append(label)
-    y_train['Target'].append(pred[i][0])
+    t1 = time.time()
+    print(t1 - t0)
 
-dfy = pd.DataFrame(y_train)
-dfy.to_csv("example/test_result_" + method + ".csv", index=False,header=False)
+    (x_train, y_train) = load_data(train_data_path,train_label_path,"01")
+    x_test = load_data(test_data_path)
+    y_predict_01, y_predict_01_proba = test_pairwise(x_train, y_train, x_test, method = method)
 
-t1 = time.time()
-print(t1 - t0)
+    (x_train, y_train) = load_data(train_data_path,train_label_path,"-11")
+    x_test = load_data(test_data_path)
+    y_predict_11, y_predict_11_proba = test_pairwise(x_train, y_train, x_test, method = method)
 
+    if method == "NCC":
+        y_predict_01 = process_data(y_predict_01)
+        y_predict_11 = process_data(y_predict_11)
+
+    pred = y_predict_01 * (2 * y_predict_11 - 1)
+
+    y_train = defaultdict(list)
+    for i in range(pred.shape[0]):
+        label= "test" + str(i+1)
+        y_train['SampleID'].append(label)
+        y_train['Target'].append(pred[i][0])
+
+    dfy = pd.DataFrame(y_train)
+    dfy.to_csv("example/test_result_" + method + ".csv", index=False, header=False)
+
+    t1 = time.time()
+    print(t1 - t0)
